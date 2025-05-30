@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feedforward Neural Network Animation (HTML/CSS/JS)</title>
+    <style>
+        /* --- Global Styles --- */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f2f5;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .container {
+            display: flex;
+            flex-grow: 1;
+            gap: 20px;
+        }
+
+        .left-panel, .right-panel {
+            background-color: #ffffff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .left-panel {
+            flex: 2; /* Takes more space */
+            display: flex;
+            flex-direction: column;
+        }
+
+        .right-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: #1a73e8; /* Google Blue */
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+
+        /* --- Canvas & Controls --- */
+        #networkCanvas {
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            width: 100%;
+            height: 500px; /* Adjust as needed */
+            background-color: #fdfdfd;
+        }
+
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        button {
+            padding: 10px 18px;
+            font-size: 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            background-color: #1a73e8;
+            color: white;
+            transition: background-color 0.2s ease;
+        }
+
+        button:hover {
+            background-color: #1558b0;
+        }
+
+        button:disabled {
+            background-color: #c0c0c0;
+            cursor: not-allowed;
+        }
+
+        #statusLabel {
+            font-size: 14px;
+            color: #555;
+        }
+
+        /* --- Code Display --- */
+        .code-display-container {
+            flex-basis: 40%; /* Allocate portion of right panel height */
+            display: flex;
+            flex-direction: column;
+        }
+        #codeDisplay {
+            background-color: #282c34; /* Dark theme for code */
+            color: #abb2bf;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-size: 13px;
+            white-space: pre;
+            overflow-x: auto;
+            flex-grow: 1;
+            line-height: 1.5;
+        }
+        .highlight {
+            background-color: #4a5160; /* Softer highlight for dark theme */
+            display: block; /* Make highlight span full width */
+            margin: 0 -15px; /* Extend to edges of padding */
+            padding: 0 15px; /* Restore padding */
+            border-left: 3px solid #61afef; /* Blue accent */
+        }
+        .comment {
+            color: #5c6370; /* Grey for comments */
+            font-style: italic;
+        }
+
+
+        /* --- Activation Table --- */
+         .activation-table-container {
+            flex-basis: 55%; /* Allocate portion of right panel height */
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto; /* Scroll if table is too long */
+        }
+        #activationTable {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 5px;
+            font-size: 13px;
+        }
+        #activationTable th, #activationTable td {
+            border: 1px solid #e0e0e0;
+            padding: 8px;
+            text-align: right;
+        }
+        #activationTable th {
+            background-color: #f7f9fc;
+            font-weight: 600;
+            text-align: center;
+        }
+        #activationTable td:first-child {
+            text-align: center;
+            font-weight: 500;
+            background-color: #f7f9fc;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="left-panel">
+            <h2>Neural Network Visualization</h2>
+            <canvas id="networkCanvas"></canvas>
+            <div class="controls">
+                <button id="nextStepBtn">Next Step</button>
+                <button id="resetBtn">Reset & New Input</button>
+                <span id="statusLabel">Step: Initial</span>
+            </div>
+        </div>
+
+        <div class="right-panel">
+            <div class="code-display-container">
+                <h2>Forward Pass Code</h2>
+                <div id="codeDisplay"></div>
+            </div>
+            <div class="activation-table-container">
+                <h2>Node Activations</h2>
+                <table id="activationTable">
+                    <thead></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Configuration ---
+        const NETWORK_ARCHITECTURE = [2, 3, 2, 1]; // Input, Hidden1, Hidden2, Output
+        const NODE_RADIUS = 20;
+        const LAYER_SPACING_X = 180;
+        const NODE_SPACING_Y = 70;
+        const ACTIVATION_PRECISION = 4;
+
+        // Colors
+        const COLOR_NODE_DEFAULT = "#D0D0D0";
+        const COLOR_NODE_OUTLINE = "#606060";
+        const COLOR_NODE_ACTIVE_LOW = "#B0E0E6";  // PowderBlue
+        const COLOR_NODE_ACTIVE_HIGH = "#4682B4"; // SteelBlue
+        const COLOR_CONNECTION = "#A0A0A0";
+        const COLOR_WEIGHT_TEXT = "#202020";
+        const COLOR_BIAS_TEXT = "#6A0DAD"; // Purple
+
+        const FORWARD_PASS_CODE_LINES = [
+            { line: "// --- Input Layer ---", type: "comment" },
+            { line: "// (Activations are the input values)", type: "comment" },
+            { line: "current_activations = input_data;", id: "input_assign" },
+            { line: "", type: "blank"},
+            { line: "// --- Hidden Layer 1 ---", type: "comment"},
+            { line: "// z_h1 = dot(current_activations, W1) + b1", type: "comment"},
+            { line: "// a_h1 = sigmoid(z_h1)", type: "comment"},
+            { line: "activations_h1 = sigmoid(dot(input_activations, W[0]) + B[0]);", id: "hidden1_calc"},
+            { line: "", type: "blank"},
+            { line: "// --- Hidden Layer 2 ---", type: "comment"},
+            { line: "// z_h2 = dot(activations_h1, W2) + b2", type: "comment"},
+            { line: "// a_h2 = sigmoid(z_h2)", type: "comment"},
+            { line: "activations_h2 = sigmoid(dot(activations_h1, W[1]) + B[1]);", id: "hidden2_calc"},
+            { line: "", type: "blank"},
+            { line: "// --- Output Layer ---", type: "comment"},
+            { line: "// z_out = dot(activations_h2, W_out) + b_out", type: "comment"},
+            { line: "// a_out = sigmoid(z_out)", type: "comment"},
+            { line: "output_activations = sigmoid(dot(activations_h2, W[2]) + B[2]);", id: "output_calc"}
+        ];
+
+        const CODE_HIGHLIGHT_MAPPING = {
+            "input": "input_assign",
+            "hidden1": "hidden1_calc",
+            "hidden2": "hidden2_calc",
+            "output": "output_calc"
+        };
+
+        // --- Global State ---
+        let weights = [];
+        let biases = [];
+        let allActivations = NETWORK_ARCHITECTURE.map(size => new Array(size).fill(0));
+        let nodePositions = []; // [layer_idx][node_idx] = {x, y}
+        let animationStep = 0;
+        let currentProcessedLayer = -2; // -2: initial, -1: input set, 0: H1, 1: H2, etc.
+
+        // --- Canvas and DOM Elements ---
+        const canvas = document.getElementById('networkCanvas');
+        const ctx = canvas.getContext('2d');
+        const nextStepBtn = document.getElementById('nextStepBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const statusLabel = document.getElementById('statusLabel');
+        const codeDisplay = document.getElementById('codeDisplay');
+        const activationTableBody = document.getElementById('activationTable').getElementsByTagName('tbody')[0];
+        const activationTableHeader = document.getElementById('activationTable').getElementsByTagName('thead')[0];
+
+        // --- Neural Network Math ---
+        function sigmoid(x) {
+            if (Array.isArray(x)) {
+                return x.map(val => 1 / (1 + Math.exp(-Math.max(-20, Math.min(20, val)))));
+            }
+            return 1 / (1 + Math.exp(-Math.max(-20, Math.min(20, x))));
+        }
+
+        function dotVectorMatrix(vector, matrix) {
+            const result = new Array(matrix[0].length).fill(0);
+            for (let j = 0; j < matrix[0].length; j++) {
+                for (let k = 0; k < vector.length; k++) {
+                    result[j] += vector[k] * matrix[k][j];
+                }
+            }
+            return result;
+        }
+
+        function addVectors(vec1, vec2) {
+            return vec1.map((val, index) => val + vec2[index]);
+        }
+
+        function initializeNetworkParameters() {
+            weights = [];
+            biases = [];
+            for (let i = 0; i < NETWORK_ARCHITECTURE.length - 1; i++) {
+                const rows = NETWORK_ARCHITECTURE[i];
+                const cols = NETWORK_ARCHITECTURE[i+1];
+                const limit = Math.sqrt(6 / (rows + cols));
+                
+                const w_layer = [];
+                for (let r = 0; r < rows; r++) {
+                    const row_w = [];
+                    for (let c = 0; c < cols; c++) {
+                        row_w.push(Math.random() * 2 * limit - limit);
+                    }
+                    w_layer.push(row_w);
+                }
+                weights.push(w_layer);
+                
+                const b_layer = [];
+                for (let c = 0; c < cols; c++) {
+                    b_layer.push(Math.random() * 0.2 - 0.1); // Biases closer to zero
+                }
+                biases.push(b_layer);
+            }
+            // Sample input
+            allActivations[0] = new Array(NETWORK_ARCHITECTURE[0]).fill(0).map(() => Math.random() * 2 - 1);
+        }
+
+        // --- Drawing ---
+        function calculateNodePositions() {
+            nodePositions = [];
+            const canvasWidth = canvas.width;
+            const canvasHeight = canvas.height;
+            const marginX = 60;
+            const marginY = 50;
+
+            const effWidth = canvasWidth - 2 * marginX;
+            const effHeight = canvasHeight - 2 * marginY;
+            
+            const numLayers = NETWORK_ARCHITECTURE.length;
+            const layerSpacingX = numLayers > 1 ? effWidth / (numLayers - 1) : LAYER_SPACING_X;
+
+            NETWORK_ARCHITECTURE.forEach((numNodes, i) => {
+                const layerNodes = [];
+                const xPos = marginX + i * layerSpacingX;
+                const totalLayerHeight = (numNodes - 1) * NODE_SPACING_Y;
+                let startY = marginY + (effHeight - totalLayerHeight) / 2;
+                if (numNodes === 1) startY = canvasHeight / 2;
+
+                for (let j = 0; j < numNodes; j++) {
+                    const yPos = startY + j * NODE_SPACING_Y;
+                    layerNodes.push({ x: xPos, y: yPos });
+                }
+                nodePositions.push(layerNodes);
+            });
+        }
+        
+        function drawNetwork() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (nodePositions.length === 0) calculateNodePositions();
+
+            // Draw connections and weights
+            for (let l = 0; l < NETWORK_ARCHITECTURE.length - 1; l++) {
+                nodePositions[l].forEach((startNode, i) => {
+                    nodePositions[l+1].forEach((endNode, j) => {
+                        ctx.beginPath();
+                        ctx.moveTo(startNode.x, startNode.y);
+                        ctx.lineTo(endNode.x, endNode.y);
+                        ctx.strokeStyle = COLOR_CONNECTION;
+                        ctx.lineWidth = 1.5;
+                        ctx.stroke();
+
+                        // Draw weight
+                        const weightVal = weights[l][i][j];
+                        ctx.fillStyle = COLOR_WEIGHT_TEXT;
+                        ctx.font = "10px Arial";
+                        const midX = (startNode.x + endNode.x) / 2;
+                        const midY = (startNode.y + endNode.y) / 2;
+                        // Basic offset to avoid line overlap - can be improved
+                        ctx.fillText(weightVal.toFixed(2), midX + 5, midY - 5);
+                    });
+                });
+            }
+
+            // Draw nodes and biases
+            nodePositions.forEach((layer, l_idx) => {
+                layer.forEach((node, n_idx) => {
+                    ctx.beginPath();
+                    ctx.arc(node.x, node.y, NODE_RADIUS, 0, 2 * Math.PI);
+                    
+                    let fillColor = COLOR_NODE_DEFAULT;
+                    if (allActivations[l_idx] && allActivations[l_idx][n_idx] !== undefined) {
+                        const activation = allActivations[l_idx][n_idx];
+                        if (currentProcessedLayer >= l_idx -1) { // Layer has been processed or is input
+                             // For input layer that is set (currentProcessedLayer == -1)
+                             // or any other processed layer (currentProcessedLayer == l_idx-1 for layer l_idx)
+                            let valForColor = activation;
+                            if (l_idx === 0) valForColor = (activation + 1) / 2; // Map input [-1,1] to [0,1]
+                            fillColor = getColorForActivation(valForColor);
+                        }
+                    }
+                    if (currentProcessedLayer === -2 && l_idx > 0) fillColor = COLOR_NODE_DEFAULT; // Initial state, non-input nodes
+                    else if (currentProcessedLayer === -2 && l_idx === 0) fillColor = COLOR_NODE_DEFAULT;
+
+
+                    ctx.fillStyle = fillColor;
+                    ctx.fill();
+                    ctx.strokeStyle = COLOR_NODE_OUTLINE;
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+
+                    // Draw bias (for hidden and output)
+                    if (l_idx > 0) {
+                        const biasVal = biases[l_idx-1][n_idx];
+                        ctx.fillStyle = COLOR_BIAS_TEXT;
+                        ctx.font = "bold 10px Arial";
+                        ctx.textAlign = "center";
+                        ctx.fillText(`b=${biasVal.toFixed(2)}`, node.x, node.y + NODE_RADIUS + 12);
+                    }
+                });
+            });
+
+            // Draw layer labels
+            const layerNames = ["Input"]
+                .concat(NETWORK_ARCHITECTURE.slice(1, -1).map((_, i) => `Hidden ${i+1}`))
+                .concat(["Output"]);
+
+            nodePositions.forEach((layer, i) => {
+                if (layer.length > 0) {
+                    const x = layer[0].x;
+                    const y = layer[0].y - NODE_RADIUS - 20;
+                    ctx.fillStyle = "#555";
+                    ctx.font = "bold 12px Arial";
+                    ctx.textAlign = "center";
+                    ctx.fillText(layerNames[i], x, y);
+                }
+            });
+        }
+
+        function getColorForActivation(activationValue) {
+            const val = Math.max(0, Math.min(1, activationValue)); // Clamp to [0,1] for sigmoid
+            
+            // Simple hex to RGB conversion helper
+            const hexToRgb = hex => hex.match(/\w\w/g).map(x => parseInt(x, 16));
+            // RGB to hex
+            const rgbToHex = (r,g,b) => "#" + [r,g,b].map(x => x.toString(16).padStart(2, '0')).join('');
+
+            const [rL, gL, bL] = hexToRgb(COLOR_NODE_ACTIVE_LOW.substring(1));
+            const [rH, gH, bH] = hexToRgb(COLOR_NODE_ACTIVE_HIGH.substring(1));
+
+            const r = Math.round(rL + (rH - rL) * val);
+            const g = Math.round(gL + (gH - gL) * val);
+            const b = Math.round(bL + (bH - bL) * val);
+            return rgbToHex(r,g,b);
+        }
+
+        // --- UI Updates ---
+        function renderCodeDisplay() {
+            codeDisplay.innerHTML = ""; // Clear previous
+            FORWARD_PASS_CODE_LINES.forEach((item, index) => {
+                const span = document.createElement('span');
+                span.textContent = item.line;
+                span.id = `code-line-${item.id || index}`;
+                if (item.type === "comment") {
+                    span.classList.add('comment');
+                } else if (item.type === "blank") {
+                     span.innerHTML = "&nbsp;"; // Ensure blank lines take space
+                }
+                codeDisplay.appendChild(span);
+                codeDisplay.appendChild(document.createTextNode('\n')); // Newline character
+            });
+        }
+
+        function highlightCode(sectionKey) {
+            // Remove previous highlights
+            document.querySelectorAll('#codeDisplay span').forEach(span => span.classList.remove('highlight'));
+
+            if (sectionKey && CODE_HIGHLIGHT_MAPPING[sectionKey]) {
+                const lineIdToHighlight = CODE_HIGHLIGHT_MAPPING[sectionKey];
+                const targetSpan = FORWARD_PASS_CODE_LINES.find(item => item.id === lineIdToHighlight);
+                if (targetSpan) {
+                    // Find all spans that make up the logical line (could be multiple if wrapped, but here it's one per line)
+                    const actualSpan = document.getElementById(`code-line-${targetSpan.id}`);
+                    if(actualSpan) actualSpan.classList.add('highlight');
+                }
+            }
+        }
+        
+        function createActivationTable() {
+            activationTableHeader.innerHTML = ""; // Clear
+            activationTableBody.innerHTML = ""; // Clear
+
+            const headerRow = activationTableHeader.insertRow();
+            headerRow.insertCell().textContent = "Node #";
+            NETWORK_ARCHITECTURE.forEach((_, l_idx) => {
+                const th = document.createElement('th');
+                let name = `L${l_idx}`;
+                if (l_idx === 0) name = "Input";
+                else if (l_idx === NETWORK_ARCHITECTURE.length - 1) name = "Output";
+                else name = `Hidden ${l_idx}`;
+                th.textContent = name;
+                headerRow.appendChild(th);
+            });
+
+            const maxNodes = Math.max(...NETWORK_ARCHITECTURE);
+            for (let n_idx = 0; n_idx < maxNodes; n_idx++) {
+                const row = activationTableBody.insertRow();
+                row.insertCell().textContent = n_idx;
+                NETWORK_ARCHITECTURE.forEach(() => {
+                    row.insertCell().textContent = "-";
+                });
+            }
+        }
+
+        function updateActivationTable() {
+            allActivations.forEach((layerActs, l_idx) => {
+                layerActs.forEach((act, n_idx) => {
+                    if (activationTableBody.rows[n_idx]) {
+                        const cell = activationTableBody.rows[n_idx].cells[l_idx + 1];
+                        if (cell) cell.textContent = act.toFixed(ACTIVATION_PRECISION);
+                    }
+                });
+                 // Fill '-' for non-existent nodes in this layer
+                for (let n_idx = layerActs.length; n_idx < Math.max(...NETWORK_ARCHITECTURE); n_idx++) {
+                    if (activationTableBody.rows[n_idx]) {
+                        const cell = activationTableBody.rows[n_idx].cells[l_idx + 1];
+                        if (cell) cell.textContent = "-";
+                    }
+                }
+            });
+        }
+
+        // --- Animation Control ---
+        function resetAnimation() {
+            animationStep = 0;
+            currentProcessedLayer = -2; // Before input processing
+            initializeNetworkParameters(); // New weights, biases, and sample input
+            
+            // Recalculate positions if canvas size changed (e.g. due to resize)
+            canvas.width = canvas.offsetWidth; // Important for responsive canvas
+            canvas.height = canvas.offsetHeight;
+            calculateNodePositions();
+            
+            allActivations = NETWORK_ARCHITECTURE.map(size => new Array(size).fill(0));
+            // Set the initial input in allActivations for drawing, but don't mark as "processed" yet
+            allActivations[0] = new Array(NETWORK_ARCHITECTURE[0]).fill(0).map(() => Math.random() * 2 - 1);
+
+
+            drawNetwork();
+            createActivationTable(); // Rebuild table structure
+            updateActivationTable(); // Fill with initial zeros or '-'
+            highlightCode(null);
+            statusLabel.textContent = "Step: Initial. Press 'Next Step'.";
+            nextStepBtn.disabled = false;
+        }
+
+        function nextStep() {
+            if (animationStep === 0) { // Process Input
+                statusLabel.textContent = "Step: Processing Input Layer";
+                // Input values were already set in allActivations[0] during initialize or previous reset
+                // We just mark it as "processed" for coloring
+                currentProcessedLayer = -1;
+                highlightCode("input");
+            } else if (animationStep <= weights.length) { // Process Hidden/Output Layers
+                const layerToProcessOutputIdx = animationStep; // This step calculates activations for this layer index
+                const prevActivations = allActivations[layerToProcessOutputIdx - 1];
+                const currentWeights = weights[layerToProcessOutputIdx - 1];
+                const currentBiases = biases[layerToProcessOutputIdx - 1];
+
+                const z = addVectors(dotVectorMatrix(prevActivations, currentWeights), currentBiases);
+                allActivations[layerToProcessOutputIdx] = sigmoid(z);
+                
+                currentProcessedLayer = layerToProcessOutputIdx -1; // Mark the *source* layer of weights as processed
+
+                if (layerToProcessOutputIdx === 1) { // First hidden layer's output computed
+                    statusLabel.textContent = "Step: Processing Hidden Layer 1";
+                    highlightCode("hidden1");
+                } else if (NETWORK_ARCHITECTURE.length > 3 && layerToProcessOutputIdx === 2) { // Second hidden layer
+                    statusLabel.textContent = "Step: Processing Hidden Layer 2";
+                    highlightCode("hidden2");
+                } else if (layerToProcessOutputIdx === NETWORK_ARCHITECTURE.length - 1) { // Output layer
+                    statusLabel.textContent = "Step: Processing Output Layer";
+                    highlightCode("output");
+                } else { // Other hidden layers (if more than 2)
+                    statusLabel.textContent = `Step: Processing Hidden Layer ${layerToProcessOutputIdx}`;
+                    highlightCode(`hidden${layerToProcessOutputIdx}`); 
+                }
+            }
+
+            drawNetwork();
+            updateActivationTable();
+            animationStep++;
+
+            if (animationStep > weights.length) {
+                statusLabel.textContent = "Step: Inference Complete!";
+                nextStepBtn.disabled = true;
+                 currentProcessedLayer = NETWORK_ARCHITECTURE.length -1; // All layers fully processed
+                 drawNetwork(); // Final draw to ensure output layer colors are fully updated
+            }
+        }
+
+        // --- Initialization ---
+        window.addEventListener('load', () => {
+            renderCodeDisplay();
+            resetAnimation(); // Initial setup
+        });
+
+        // For responsive canvas, re-calculate positions and redraw on resize
+        // Debounce resize to avoid excessive calculations
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                canvas.width = canvas.offsetWidth;
+                canvas.height = canvas.offsetHeight;
+                calculateNodePositions();
+                drawNetwork(); // Redraw with current state
+            }, 250);
+        });
+
+        nextStepBtn.addEventListener('click', nextStep);
+        resetBtn.addEventListener('click', resetAnimation);
+
+    </script>
+</body>
+</html>
